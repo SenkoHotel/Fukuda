@@ -26,6 +26,23 @@ internal static class Program
             }
         };
 
+        bot.Client.VoiceStateUpdated += (_, ev) =>
+        {
+            var vnext = bot.Client.GetVoiceNext();
+            var conn = vnext.GetConnection(ev.Guild);
+
+            if (conn is null)
+                return Task.CompletedTask;
+
+            if (conn.TargetChannel.Users.Count <= 1)
+            {
+                conn.Disconnect();
+                PlaylistManager.FullStop();
+            }
+
+            return Task.CompletedTask;
+        };
+
         await bot.Start();
     }
 }

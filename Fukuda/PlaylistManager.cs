@@ -129,6 +129,13 @@ public static class PlaylistManager
         queue.Clear();
     }
 
+    public static void FullStop()
+    {
+        StopAll();
+        started = false;
+        transmit = null;
+    }
+
     private static Stream? readAsPcm(string path)
     {
         var ffmpeg = Process.Start(new ProcessStartInfo
