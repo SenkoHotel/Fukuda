@@ -15,7 +15,7 @@ public class PlayCommand : SlashCommand
 
     public override List<SlashOption> Options => new()
     {
-        new SlashOption("id", "the id of the youtube video", ApplicationCommandOptionType.String, true)
+        new SlashOption("url", "the url of the youtube video", ApplicationCommandOptionType.String, true)
     };
 
     public override async Task Handle(HotelBot bot, DiscordInteraction interaction)
@@ -29,7 +29,19 @@ public class PlayCommand : SlashCommand
 
         try
         {
-            var id = interaction.GetString("id")!;
+            var url = interaction.GetString("url")!;
+            string id;
+
+            if (url.StartsWith("https://www.youtube.com/watch?v=") || url.StartsWith("https://music.youtube.com/watch?v="))
+            {
+                var split = url.Split("?v=");
+                id = split[1].Split("&")[0];
+            }
+            else
+            {
+                await interaction.Reply("Unsupported URL.");
+                return;
+            }
 
             var vnext = bot.Client.GetVoiceNext();
             var connection = vnext.GetConnection(interaction.Guild);
