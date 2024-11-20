@@ -10,7 +10,7 @@ public class QueueCommand : SlashCommand
     public override string Name => "queue";
     public override string Description => "Lists all the songs in the current queue.";
 
-    public override void Handle(HotelBot bot, DiscordInteraction interaction)
+    public override async Task Handle(HotelBot bot, DiscordInteraction interaction)
     {
         var q = PlaylistManager.Queue;
 
@@ -34,7 +34,7 @@ public class QueueCommand : SlashCommand
         if (over > 0)
             embed = embed.WithFooter($"+{over} more");
 
-        interaction.ReplyEmbed(embed);
+        await interaction.ReplyEmbed(embed);
     }
 
     private static string cropString(string str, int len) => str.Length > len ? str[..len] : str;

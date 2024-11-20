@@ -12,7 +12,7 @@ public class JoinChannelCommand : SlashCommand
     public override string Name => "join";
     public override string Description => "Joins the channel you are currently in.";
 
-    public override async void Handle(HotelBot bot, DiscordInteraction interaction)
+    public override async Task Handle(HotelBot bot, DiscordInteraction interaction)
     {
         try
         {

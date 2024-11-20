@@ -18,7 +18,7 @@ public class PlayCommand : SlashCommand
         new SlashOption("id", "the id of the youtube video", ApplicationCommandOptionType.String, true)
     };
 
-    public override async void Handle(HotelBot bot, DiscordInteraction interaction)
+    public override async Task Handle(HotelBot bot, DiscordInteraction interaction)
     {
         var embed = new DiscordEmbedBuilder
         {
