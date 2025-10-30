@@ -37,10 +37,11 @@ public class JoinChannelCommand : SlashCommand
             await vc.ConnectAsync();
 
             connection = vnext.GetConnection(interaction.Guild);
+            var playlist = Program.GetPlaylistForServer(interaction.GuildId!.Value);
 
             var transmit = connection.GetTransmitSink();
             transmit.VolumeModifier = 0.1;
-            PlaylistManager.RegisterSink(transmit);
+            playlist.RegisterSink(transmit);
 
             await interaction.Reply($"Joined {vc.Mention}!");
         }

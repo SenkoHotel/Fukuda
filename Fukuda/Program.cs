@@ -8,12 +8,11 @@ namespace Fukuda;
 
 internal static class Program
 {
-    public static Config Config { get; private set; } = null!;
+    public static Dictionary<ulong, PlaylistManager> Guilds { get; } = new();
 
     public static async Task Main()
     {
-        Config = HotelBot.LoadConfig<Config>();
-        var bot = new HotelBot(Config.Token, c => c.UseVoiceNext())
+        var bot = new HotelBot(c => c.UseVoiceNext())
         {
             AccentColor = new DiscordColor("#bd7a67"),
             Commands = new List<SlashCommand>
@@ -37,12 +36,23 @@ internal static class Program
             if (conn.TargetChannel.Users.Count <= 1)
             {
                 conn.Disconnect();
-                PlaylistManager.FullStop();
+                var playlist = GetPlaylistForServer(ev.Guild.Id);
+                playlist.FullStop();
             }
 
             return Task.CompletedTask;
         };
 
         await bot.Start();
+    }
+
+    public static PlaylistManager GetPlaylistForServer(ulong id)
+    {
+        if (Guilds.TryGetValue(id, out var server))
+            return server;
+
+        var playlist = new PlaylistManager();
+        Guilds[id] = playlist;
+        return playlist;
     }
 }

@@ -1,21 +1,29 @@
 ﻿using System.Diagnostics;
 using DSharpPlus.VoiceNext;
 using HotelLib.Logging;
-using Newtonsoft.Json;
+using YoutubeExplode;
+using YoutubeExplode.Videos;
+using YoutubeExplode.Videos.Streams;
 
 namespace Fukuda;
 
-public static class PlaylistManager
+public class PlaylistManager
 {
-    private static bool started;
-    private static CancellationTokenSource? tokenSource;
-    private static VoiceTransmitSink? transmit;
+    private bool started;
+    private CancellationTokenSource? tokenSource;
+    private VoiceTransmitSink? transmit;
 
-    private static Queue<YouTubeMetadata> queue { get; } = new();
+    private YoutubeClient youtube { get; }
+    private Queue<QueueInfo> queue { get; } = new();
 
-    public static IReadOnlyList<YouTubeMetadata> Queue => queue.ToList();
+    public IReadOnlyList<QueueInfo> Queue => queue.ToArray();
 
-    public static void EnsureStart()
+    public PlaylistManager()
+    {
+        youtube = new YoutubeClient();
+    }
+
+    public void EnsureStart()
     {
         if (started)
             return;
@@ -34,14 +42,23 @@ public static class PlaylistManager
                         continue;
 
                     var current = queue.Peek();
-                    var path = createFileName(current.ID);
 
-                    using var pcm = readAsPcm(path);
+                    using var stream = await youtube.Videos.Streams.GetAsync(current.Stream);
+                    using var ffmpeg = prepareOutput();
 
-                    if (pcm is null || transmit is null)
+                    if (ffmpeg is null || transmit is null)
                         return;
 
-                    await pcm.CopyToAsync(transmit, cancellationToken: tokenSource!.Token);
+                    // ReSharper disable AccessToDisposedClosure
+                    var inStream = ffmpeg.StandardInput.BaseStream;
+                    var outStream = ffmpeg.StandardOutput.BaseStream;
+
+                    var token = tokenSource!.Token;
+                    token.Register(() => ffmpeg.Kill());
+
+                    using var write = Task.Run(async () => await stream.CopyToAsync(inStream, cancellationToken: token), cancellationToken: token);
+                    await outStream.CopyToAsync(transmit, cancellationToken: token);
+                    // ReSharper restore AccessToDisposedClosure
 
                     queue.Dequeue();
                 }
@@ -55,98 +72,81 @@ public static class PlaylistManager
         thread.Start();
     }
 
-    public static void RegisterSink(VoiceTransmitSink sink) => transmit = sink;
+    public void RegisterSink(VoiceTransmitSink sink) => transmit = sink;
 
-    private static string createFileName(string id, string ext = "mp3") => $"cache/{id}.{ext}";
+    private string createFileName(string id, string ext = "mp3") => $"cache/{id}.{ext}";
 
-    public static bool IsMissingMetadata(string id) => !File.Exists(createFileName(id, "info.json"));
-    public static bool NeedsDownload(string id) => !File.Exists(createFileName(id));
+    public bool IsMissingMetadata(string id) => !File.Exists(createFileName(id, "info.json"));
+    public bool NeedsDownload(string id) => !File.Exists(createFileName(id, "audio"));
 
-    public static YouTubeMetadata? ReadMetadata(string id)
+    public async Task<Video?> FetchMetadata(string id)
     {
-        var name = createFileName(id, "info.json");
-
-        if (!File.Exists(name))
+        try
+        {
+            var video = await youtube.Videos.GetAsync(id);
+            return video;
+        }
+        catch
+        {
             return null;
-
-        var json = File.ReadAllText(name);
-        return JsonConvert.DeserializeObject<YouTubeMetadata>(json);
+        }
     }
 
-    public static async Task<bool> DownloadMetadata(string id)
+    public async Task<IStreamInfo?> FindStream(Video video)
     {
         Directory.CreateDirectory("cache");
 
-        var ytdlp = Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = "yt-dlp",
-            Arguments = $"https://music.youtube.com/watch?v={id} --write-info-json --skip-download --cookies \"{Program.Config.YouTubeCookies}\" -o \"cache/{id}.%(ext)s\"",
-            RedirectStandardOutput = true,
-            RedirectStandardError = false,
-            UseShellExecute = false
-        });
+            var manifest = await youtube.Videos.Streams.GetManifestAsync(video.Id);
+            var audioOnly = manifest.GetAudioOnlyStreams();
+            var audio = audioOnly.GetWithHighestBitrate();
 
-        if (ytdlp is null)
-            return false;
+            foreach (var streamInfo in audioOnly)
+                Logger.Log($"{streamInfo.Container} {streamInfo.Bitrate} {streamInfo.AudioCodec} {streamInfo.Size}");
 
-        await ytdlp.WaitForExitAsync();
-        return true;
+            return audio;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
-    public static async Task<bool> DownloadAudio(string id)
-    {
-        Directory.CreateDirectory("cache");
-
-        var ytdlp = Process.Start(new ProcessStartInfo
-        {
-            FileName = "yt-dlp",
-            Arguments = $"-x --audio-format mp3 https://www.youtube.com/watch?v={id} -o \"{createFileName(id)}\" --cookies {Program.Config.YouTubeCookies} --ffmpeg-location {Program.Config.FFmpeg}",
-            RedirectStandardOutput = true,
-            RedirectStandardError = false,
-            UseShellExecute = false
-        });
-
-        if (ytdlp is null)
-            return false;
-
-        await ytdlp.WaitForExitAsync();
-        return true;
-    }
-
-    public static int QueueSong(YouTubeMetadata meta)
+    public int QueueSong(Video video, IStreamInfo stream, string requester)
     {
         EnsureStart();
 
         var count = queue.Count;
-        queue.Enqueue(meta);
+        queue.Enqueue(new QueueInfo(video, stream, requester));
         return ++count;
     }
 
-    public static void StopAll()
+    public void StopAll()
     {
         tokenSource?.Cancel();
         tokenSource = null;
         queue.Clear();
     }
 
-    public static void FullStop()
+    public void FullStop()
     {
         StopAll();
         started = false;
         transmit = null;
     }
 
-    private static Stream? readAsPcm(string path)
+    private static Process? prepareOutput()
     {
         var ffmpeg = Process.Start(new ProcessStartInfo
         {
-            FileName = Program.Config.FFmpeg,
-            Arguments = $"""-i "{path}" -ac 2 -f s16le -ar 48000 pipe:1""",
+            FileName = "ffmpeg",
+            Arguments = $"-i pipe:0 -ac 2 -f s16le -ar 48000 pipe:1",
+            RedirectStandardInput = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = false,
             UseShellExecute = false
         });
 
-        return ffmpeg?.StandardOutput.BaseStream;
+        return ffmpeg;
     }
 }

@@ -31,7 +31,9 @@ public class StopCommand : SlashCommand
             return;
         }
 
-        PlaylistManager.StopAll();
+        var playlist = Program.GetPlaylistForServer(interaction.GuildId!.Value);
+        playlist.StopAll();
+
         await interaction.Reply("Stopped playback.");
     }
 }

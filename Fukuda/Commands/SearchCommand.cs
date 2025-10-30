@@ -14,14 +14,15 @@ public class SearchCommand : SlashCommand
 
     public override List<SlashOption> Options => new()
     {
-        new SlashOption("id", "the id of the youtube video", ApplicationCommandOptionType.String, true)
+        new SlashOption("url", "the url of the youtube video", ApplicationCommandOptionType.String, true)
     };
 
     public override async Task Handle(HotelBot bot, DiscordInteraction interaction)
     {
         try
         {
-            var id = interaction.GetString("id")!;
+            var playlist = Program.GetPlaylistForServer(interaction.GuildId!.Value);
+            var url = interaction.GetString("url")!;
 
             var embed = new DiscordEmbedBuilder
             {
@@ -32,23 +33,16 @@ public class SearchCommand : SlashCommand
 
             await interaction.ReplyEmbed(embed);
 
-            if (PlaylistManager.IsMissingMetadata(id))
+            var video = await playlist.FetchMetadata(url);
+
+            if (video is null)
             {
-                await interaction.UpdateEmbed(embed.WithDescription("Fetching metadata..."));
-
-                if (!await PlaylistManager.DownloadMetadata(id))
-                    return;
-            }
-
-            var meta = PlaylistManager.ReadMetadata(id);
-
-            if (meta is null)
-            {
-                // error("Failed to get metadata! :<");
+                await interaction.UpdateEmbed(embed.WithColor(new DiscordColor("#ff5555"))
+                                                   .WithDescription("Failed to fetch metadata!"));
                 return;
             }
 
-            embed = meta.PopulateEmbed(embed);
+            embed = video.PopulateEmbed(embed);
             await interaction.UpdateEmbed(embed.WithDescription(""));
         }
         catch (Exception e)

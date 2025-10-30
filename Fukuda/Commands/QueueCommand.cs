@@ -12,7 +12,8 @@ public class QueueCommand : SlashCommand
 
     public override async Task Handle(HotelBot bot, DiscordInteraction interaction)
     {
-        var q = PlaylistManager.Queue;
+        var playlist = Program.GetPlaylistForServer(interaction.GuildId!.Value);
+        var q = playlist.Queue;
 
         var embed = new DiscordEmbedBuilder
         {
@@ -26,7 +27,7 @@ public class QueueCommand : SlashCommand
         {
             var item = q[i];
 
-            embed = embed.AddField($"#{i + 1} queued by {item.RequestedBy}", $"`{cropString($"[{item.Duration}] {item.Artist} - {item.Title}", 1024 - 2)}`");
+            embed = embed.AddField($"#{i + 1} queued by {item.Requester}", $"`{cropString($"[{item.Video.Duration}] {item.Video.Author.ChannelTitle} - {item.Video.Title}", 1024 - 2)}`");
         }
 
         var over = q.Count - max;

@@ -23,26 +23,13 @@ public class PlayCommand : SlashCommand
         var embed = new DiscordEmbedBuilder
         {
             Title = "Adding to queue...",
-            Description = "Checking...",
+            Description = "Loading Metadata...",
             Color = bot.AccentColor
         };
 
         try
         {
             var url = interaction.GetString("url")!;
-            string id;
-
-            if (url.StartsWith("https://www.youtube.com/watch?v=") || url.StartsWith("https://music.youtube.com/watch?v="))
-            {
-                var split = url.Split("?v=");
-                id = split[1].Split("&")[0];
-            }
-            else
-            {
-                await interaction.Reply("Unsupported URL.");
-                return;
-            }
-
             var vnext = bot.Client.GetVoiceNext();
             var connection = vnext.GetConnection(interaction.Guild);
 
@@ -54,49 +41,30 @@ public class PlayCommand : SlashCommand
 
             await interaction.ReplyEmbed(embed);
 
-            if (PlaylistManager.IsMissingMetadata(id))
-            {
-                await interaction.UpdateEmbed(embed.WithDescription("Fetching metadata..."));
+            var playlist = Program.GetPlaylistForServer(interaction.GuildId!.Value);
 
-                if (!await PlaylistManager.DownloadMetadata(id))
-                {
-                    error("Failed to download metadata! :<");
-                    return;
-                }
-            }
+            var video = await playlist.FetchMetadata(url);
 
-            var meta = PlaylistManager.ReadMetadata(id);
-
-            if (meta is null)
+            if (video is null)
             {
                 error("Failed to get metadata! :<");
                 return;
             }
 
-            embed = meta.PopulateEmbed(embed);
+            embed = video.PopulateEmbed(embed);
 
-            if (meta.DurationNum > 60 * 60)
+            await interaction.UpdateEmbed(embed.WithDescription("Searching audio stream..."));
+            var stream = await playlist.FindStream(video);
+
+            if (stream is null)
             {
-                error("Song is too long to queue.");
+                error("Failed to download audio! :<");
                 return;
-            }
-
-            if (PlaylistManager.NeedsDownload(id))
-            {
-                await interaction.UpdateEmbed(embed.WithDescription("Downloading Audio..."));
-
-                if (!await PlaylistManager.DownloadAudio(id))
-                {
-                    error("Failed to download audio! :<");
-                    return;
-                }
             }
 
             await interaction.UpdateEmbed(embed.WithDescription("Queueing..."));
 
-            meta.RequestedBy = interaction.User.Username;
-            var idx = PlaylistManager.QueueSong(meta);
-
+            var idx = playlist.QueueSong(video, stream, interaction.User.Username);
             await interaction.UpdateEmbed(embed.WithTitle("Added to playlist!").WithDescription($"Position #{idx}"));
         }
         catch (Exception e)
@@ -106,7 +74,9 @@ public class PlayCommand : SlashCommand
 
         void error(string message)
         {
-            _ = interaction.UpdateEmbed(embed.WithTitle("Failed to add.").WithColor(new DiscordColor("#ff5555")).WithDescription(message));
+            _ = interaction.UpdateEmbed(embed.WithTitle("Failed to add.")
+                                             .WithColor(new DiscordColor("#ff5555"))
+                                             .WithDescription(message));
         }
     }
 }
